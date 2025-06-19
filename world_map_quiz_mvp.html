@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Border-Only Country Quiz</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #map { height: 100vh; background: white; }
+    #quiz-box {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: white;
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      z-index: 1000;
+      display: none;
+    }
+    #quiz-box input {
+      width: 200px;
+      padding: 4px;
+      font-size: 14px;
+    }
+    #feedback {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.8);
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-weight: bold;
+      z-index: 1001;
+      display: none;
+    }
+    #score {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: white;
+      padding: 8px 12px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      z-index: 1000;
+      font-weight: bold;
+    }
+    #reset {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: white;
+      padding: 6px 10px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      z-index: 1000;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    #timer {
+      position: absolute;
+      top: 80px;
+      right: 10px;
+      background: white;
+      padding: 6px 10px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      z-index: 1000;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="quiz-box">
+    <label for="guess">Which country is this?</label><br>
+    <input list="countries" id="guess" />
+    <datalist id="countries"></datalist>
+    <button onclick="checkAnswer()">Submit</button>
+  </div>
+  <div id="feedback"></div>
+  <div id="score">Score: 0<br><span id="percentage">0.00%</span></div>
+  <div id="timer">Time: 0s</div>
+  <div id="reset" onclick="resetGame()">🔄 Reset</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map', {
+      center: [20, 0],
+      zoom: 2,
+      zoomControl: false,
+      attributionControl: false
+    });
+
+    const blueBackground = L.tileLayer('', {
+      minZoom: 0,
+      maxZoom: 18,
+      tileSize: 256,
+      noWrap: true,
+      bounds: [[-90, -180], [90, 180]]
+    });
+
+    blueBackground.createTile = function () {
+      const tile = document.createElement('canvas');
+      tile.width = tile.height = 256;
+      const ctx = tile.getContext('2d');
+      ctx.fillStyle = '#a0d8f1';
+      ctx.fillRect(0, 0, 256, 256);
+      return tile;
+    };
+    blueBackground.addTo(map);
+
+    let countries = [], currentAnswer = '', score = 0, guessed = new Set();
+    let layerMap = new Map();
+    let timer = 0;
+    let timerInterval = setInterval(() => {
+      timer++;
+      document.getElementById("timer").textContent = `Time: ${timer}s`;
+    }, 1000);
+
+    async function loadGeoJSON() {
+      const res = await fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json');
+      const data = await res.json();
+      countries = data.features;
+
+      const nameList = countries.map(f => f.properties.name).sort();
+      const datalist = document.getElementById('countries');
+      datalist.innerHTML = '';
+      nameList.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        datalist.appendChild(opt);
+      });
+
+      L.geoJSON(data, {
+        style: feature => ({
+          color: "#000",
+          weight: 1,
+          fillOpacity: 1,
+          fillColor: 'white'
+        }),
+        onEachFeature: (feature, layer) => {
+          const countryName = feature.properties.name;
+          layerMap.set(countryName.toLowerCase(), layer);
+
+          layer.on('click', () => {
+            currentAnswer = countryName;
+            document.getElementById("quiz-box").style.display = "block";
+            document.getElementById("guess").value = "";
+          });
+        }
+      }).addTo(map);
+    }
+
+    function checkAnswer() {
+      const guess = document.getElementById("guess").value.trim();
+      const feedback = document.getElementById("feedback");
+
+      if (guess.toLowerCase() === currentAnswer.toLowerCase()) {
+        if (!guessed.has(currentAnswer.toLowerCase())) {
+          score++;
+          guessed.add(currentAnswer.toLowerCase());
+          const percent = (score / countries.length * 100).toFixed(2);
+          document.getElementById("score").innerHTML = `Score: ${score}<br><span id='percentage'>${percent}%</span>`;
+
+          const layer = layerMap.get(currentAnswer.toLowerCase());
+          if (layer) layer.setStyle({ fillColor: '#000', fillOpacity: 1 });
+        }
+        feedback.textContent = "Correct";
+      } else {
+        feedback.textContent = `❌ Wrong! It was ${currentAnswer}`;
+      }
+
+      feedback.style.display = 'block';
+      setTimeout(() => feedback.style.display = 'none', 3000);
+      document.getElementById("quiz-box").style.display = "none";
+    }
+
+    function resetGame() {
+      score = 0;
+      guessed.clear();
+      timer = 0;
+      document.getElementById("score").innerHTML = `Score: 0<br><span id='percentage'>0.00%</span>`;
+      document.getElementById("timer").textContent = `Time: 0s`;
+      layerMap.forEach(layer => {
+        layer.setStyle({ fillColor: 'white', fillOpacity: 1 });
+      });
+    }
+
+    loadGeoJSON();
+  </script>
+</body>
+</html>
